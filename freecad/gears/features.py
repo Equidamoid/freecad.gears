@@ -69,12 +69,71 @@ class ViewProviderGear(object):
         return None
 
 
+def make_involute_gear(
+        module: float,
+        teeth: int,
+        height: float,
+        undercut=False,
+        shift: float = 0.,
+        pressure_angle_deg = 20,
+        beta_deg: float = 0,
+        clearance: float = 0.12,
+        backlash: float = 0.,
+        head: float = 0.,
+        simple = False,
+        double_helix = False,
+        numpoints: int = 6,
+        properties_from_tool=False
+
+) -> typing.Tuple[Shape, InvoluteTooth]:
+    gear = InvoluteTooth()
+    gear.m_n = module
+    gear.z = teeth
+    gear.undercut = undercut
+    gear.shift = shift
+    gear.pressure_angle = pressure_angle_deg * np.pi / 180.
+    gear.beta = beta_deg * np.pi / 180
+    gear.clearance = clearance
+    gear.backlash = backlash
+    gear.head = head
+    gear.properties_from_tool = properties_from_tool
+
+    gear._update()
+    pts = gear.points(num=numpoints)
+    rotated_pts = pts
+    rot = rotation(-gear.phipart)
+    for i in range(gear.z - 1):
+        rotated_pts = list(map(rot, rotated_pts))
+        pts.append(np.array([pts[-1][-1], rotated_pts[0][0]]))
+        pts += rotated_pts
+    pts.append(np.array([pts[-1][-1], pts[0][0]]))
+    if not simple:
+        wi = []
+        for i in pts:
+            out = BSplineCurve()
+            out.interpolate(list(map(fcvec, i)))
+            wi.append(out.toShape())
+        wi = Wire(wi)
+        if height == 0:
+            shape = wi
+        elif beta_deg == 0:
+            sh = Face(wi)
+            shape = sh.extrude(App.Vector(0, 0, height))
+        else:
+            shape = helicalextrusion(
+                wi, height, height * np.tan(gear.beta) * 2 / gear.d, double_helix)
+    else:
+        rw = gear.dw / 2
+        shape = Part.makeCylinder(rw, height)
+
+    return shape, gear
+
+
 class InvoluteGear(object):
 
     """FreeCAD gear"""
 
     def __init__(self, obj):
-        self.involute_tooth = InvoluteTooth()
         obj.addProperty(
             "App::PropertyBool", "simple", "gear_parameter", "simple")
         obj.addProperty("App::PropertyInteger",
@@ -112,7 +171,6 @@ class InvoluteGear(object):
                         "computed", "pitch diameter", 1)
         obj.addProperty("App::PropertyLength", "transverse_pitch",
                         "computed", "transverse_pitch", 1)
-        obj.gear = self.involute_tooth
         obj.simple = False
         obj.undercut = False
         obj.teeth = 15
@@ -132,47 +190,19 @@ class InvoluteGear(object):
         obj.Proxy = self
 
     def execute(self, fp):
-        fp.gear.double_helix = fp.double_helix
-        fp.gear.m_n = fp.module.Value
-        fp.gear.z = fp.teeth
-        fp.gear.undercut = fp.undercut
-        fp.gear.shift = fp.shift
-        fp.gear.pressure_angle = fp.pressure_angle.Value * np.pi / 180.
-        fp.gear.beta = fp.beta.Value * np.pi / 180
-        fp.gear.clearance = fp.clearance
-        fp.gear.backlash = fp.backlash.Value * \
-            (-fp.reversed_backlash + 0.5) * 2.
-        fp.gear.head = fp.head
-        # checksbackwardcompatibility:
-        if "properties_from_tool" in fp.PropertiesList:
-            fp.gear.properties_from_tool = fp.properties_from_tool
-        fp.gear._update()
-        pts = fp.gear.points(num=fp.numpoints)
-        rotated_pts = pts
-        rot = rotation(-fp.gear.phipart)
-        for i in range(fp.gear.z - 1):
-            rotated_pts = list(map(rot, rotated_pts))
-            pts.append(np.array([pts[-1][-1], rotated_pts[0][0]]))
-            pts += rotated_pts
-        pts.append(np.array([pts[-1][-1], pts[0][0]]))
-        if not fp.simple:
-            wi = []
-            for i in pts:
-                out = BSplineCurve()
-                out.interpolate(list(map(fcvec, i)))
-                wi.append(out.toShape())
-            wi = Wire(wi)
-            if fp.height.Value == 0:
-                fp.Shape = wi
-            elif fp.beta.Value == 0:
-                sh = Face(wi)
-                fp.Shape = sh.extrude(App.Vector(0, 0, fp.height.Value))
-            else:
-                fp.Shape = helicalextrusion(
-                    wi, fp.height.Value, fp.height.Value * np.tan(fp.gear.beta) * 2 / fp.gear.d, fp.double_helix)
-        else:
-            rw = fp.gear.dw / 2
-            fp.Shape = Part.makeCylinder(rw, fp.height.Value)
+        fp.Shape, fp.gear = make_involute_gear(
+            module=fp.module.Value,
+            teeth=fp.teeth,
+            undercut=fp.undercut,
+            shift=fp.shift,
+            pressure_angle_deg=fp.pressure_angle.Value,
+            beta_deg=fp.beta.Value,
+            clearance=fp.clearance,
+            backlash=fp.backlash.Value * (-fp.reversed_backlash + 0.5) * 2.,
+            head=fp.head,
+            height=fp.height.Value,
+            double_helix=fp.double_helix,
+        )
 
         # computed properties
         fp.dw = "{}mm".format(fp.gear.dw)
