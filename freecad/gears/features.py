@@ -21,6 +21,9 @@
 
 from __future__ import division
 import os
+import dataclasses
+import typing
+
 
 import numpy as np
 import math
@@ -30,6 +33,7 @@ from pygears.cycloid_tooth import CycloidTooth
 from pygears.bevel_tooth import BevelTooth
 from pygears._functions import rotation3D, rotation, reflection, arc_from_points_and_center
 
+import freecaddy.hybride as fch
 
 import FreeCAD as App
 import Part
@@ -913,37 +917,51 @@ class TimingGear(BaseGear):
         pass
 
 
-class LanternGear(BaseGear):
-    def __init__(self, obj):
-        super(LanternGear, self).__init__(obj)
-        obj.addProperty("App::PropertyInteger",
-                        "teeth", "gear_parameter", "number of teeth")
-        obj.addProperty(
-            "App::PropertyLength", "module", "gear_parameter", "module")
-        obj.addProperty(
-            "App::PropertyLength", "bolt_radius", "gear_parameter", "the bolt radius of the rack/chain")
-        obj.addProperty(
-            "App::PropertyLength", "height", "gear_parameter", "height")
-        obj.addProperty("App::PropertyInteger",
-                        "num_profiles", "accuracy", "number of profiles used for loft")
-        obj.addProperty(
-            "App::PropertyFloat", "head", "gear_parameter", "head * module = additional length of head")
+@dataclasses.dataclass
+class LanternGearProperties:
+    teeth: int = fch.fc_property_int(15, 'gear_parameter', 'number of teeth')
+    module_mm: float = fch.fc_property_len(1, "gear_parameter", "module")
+    bolt_radius_mm: float = fch.fc_property_len(1, "gear_parameter", "the bolt radius of the rack/chain")
+    height_mm: float = fch.fc_property_len(5, "gear_parameter", "height")
+    head: int = fch.fc_property_float(0, "gear_parameter", "head * module = additional length of head")
+    num_profiles: int = fch.fc_property_int(10, "accuracy", "number of profiles used for loft")
 
-        obj.teeth = 15
-        obj.module = '1. mm'
-        obj.bolt_radius = '1 mm'
-        
-        obj.height = '5. mm'
-        obj.num_profiles = 10
-        
+class HybrideBaseGear(BaseGear):
+    props_type: typing.ClassVar
+    generator_type: typing.ClassVar
+
+    def __init__(self, obj):
+        super(HybrideBaseGear, self).__init__(obj)
+        self.props = self.props_type()
+        self.generator = self.generator_type(self.props)
+
+        fch.add_properties(obj, self.props)
+        fch.set_properties(obj, self.props)
+
         self.obj = obj
         obj.Proxy = self
 
     def execute(self, fp):
-        super(LanternGear, self).execute(fp)
-        m = fp.module.Value
+        super(HybrideBaseGear, self).execute(fp)
+        fch.get_properties(fp, self.props)
+        fp.Shape = self.generator.generate_shape()
+
+    def __getstate__(self):
+        pass
+
+    def __setstate__(self, state):
+        pass
+
+class LanternGearGenerator:
+
+    def __init__(self, properties: LanternGearProperties):
+        self._properties = properties
+
+    def generate_shape(self):
+        fp = self._properties
+        m = fp.module_mm
         teeth = fp.teeth
-        r_r = fp.bolt_radius.Value
+        r_r = fp.bolt_radius_mm
         r_0 = m * teeth / 2
         r_max = r_0 + r_r + fp.head * m
 
@@ -994,16 +1012,15 @@ class LanternGear(BaseGear):
             wires.append(w.transformGeometry(rot))
 
         wi = Part.Wire(wires)
-        if fp.height.Value == 0:
-            fp.Shape = wi
+        if fp.height_mm == 0:
+            return wi
         else:
-            fp.Shape = Part.Face(wi).extrude(App.Vector(0, 0, fp.height))
+            return Part.Face(wi).extrude(App.Vector(0, 0, fp.height_mm))
 
-    def __getstate__(self):
-        pass
 
-    def __setstate__(self, state):
-        pass
+class LanternGear(HybrideBaseGear, LanternGearGenerator):
+    props_type = LanternGearProperties
+    generator_type = LanternGearGenerator
 
 class HypoCycloidGear(BaseGear):
 
