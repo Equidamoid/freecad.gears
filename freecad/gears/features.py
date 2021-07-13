@@ -98,135 +98,144 @@ class BaseGear(object):
             self.make_attachable(fp)
         fp.positionBySupport()
 
-class InvoluteGear(BaseGear):
 
-    """FreeCAD gear"""
+class HybrideBaseGear(BaseGear):
+    props_type: typing.ClassVar
+    generator_type: typing.ClassVar
 
     def __init__(self, obj):
-        super(InvoluteGear, self).__init__(obj)
-        self.involute_tooth = InvoluteTooth()
-        obj.addProperty(
-            "App::PropertyBool", "simple", "precision", "simple")
-        obj.addProperty("App::PropertyInteger",
-                        "teeth", "gear_parameter", "number of teeth")
-        obj.addProperty(
-            "App::PropertyLength", "module", "gear_parameter", "normal module if properties_from_tool=True, \
-                                                                else it's the transverse module.")
-        obj.addProperty(
-            "App::PropertyBool", "undercut", "gear_parameter", "undercut")
-        obj.addProperty(
-            "App::PropertyFloat", "shift", "gear_parameter", "shift")
-        obj.addProperty(
-            "App::PropertyLength", "height", "gear_parameter", "height")
-        obj.addProperty(
-            "App::PropertyAngle", "pressure_angle", "involute_parameter", "pressure angle")
-        obj.addProperty(
-            "App::PropertyFloat", "clearance", "gear_parameter", "clearance")
-        obj.addProperty("App::PropertyInteger", "numpoints",
-                        "precision", "number of points for spline")
-        obj.addProperty(
-            "App::PropertyAngle", "beta", "gear_parameter", "beta ")
-        obj.addProperty(
-            "App::PropertyBool", "double_helix", "gear_parameter", "double helix")
-        obj.addProperty(
-            "App::PropertyLength", "backlash", "tolerance", "backlash")
-        obj.addProperty(
-            "App::PropertyBool", "reversed_backlash", "tolerance", "backlash direction")
-        obj.addProperty(
-            "App::PropertyFloat", "head", "gear_parameter", "head_value * modul_value = additional length of head")
-        obj.addProperty(
-            "App::PropertyBool", "properties_from_tool", "gear_parameter", "if beta is given and properties_from_tool is enabled, \
-            gear parameters are internally recomputed for the rotated gear")
-        obj.addProperty("App::PropertyPythonObject",
-                        "gear", "gear_parameter", "test")
-        obj.addProperty("App::PropertyLength", "dw",
-                        "computed", "pitch diameter", 1)
-        obj.addProperty("App::PropertyLength", "transverse_pitch",
-                        "computed", "transverse_pitch", 1)
-        self.add_limiting_diameter_properties(obj)
-        obj.gear = self.involute_tooth
-        obj.simple = False
-        obj.undercut = False
-        obj.teeth = 15
-        obj.module = '1. mm'
-        obj.shift = 0.
-        obj.pressure_angle = '20. deg'
-        obj.beta = '0. deg'
-        obj.height = '5. mm'
-        obj.clearance = 0.25
-        obj.head = 0.
-        obj.numpoints = 6
-        obj.double_helix = False
-        obj.backlash = '0.00 mm'
-        obj.reversed_backlash = False
-        obj.properties_from_tool = False
+        super(HybrideBaseGear, self).__init__(obj)
+        self.props = self.props_type()
+        self.generator = self.generator_type(self.props)
+
+        fch.add_properties(obj, self.props)
+        fch.set_properties(obj, self.props)
+
         self.obj = obj
         obj.Proxy = self
 
-    def add_limiting_diameter_properties(self, obj):
-        obj.addProperty("App::PropertyLength", "da",
-                        "computed", "outside diameter", 1)
-        obj.addProperty("App::PropertyLength", "df",
-                        "computed", "root diameter", 1)
-
     def execute(self, fp):
-        super(InvoluteGear, self).execute(fp)
-        fp.gear.double_helix = fp.double_helix
-        fp.gear.m_n = fp.module.Value
-        fp.gear.z = fp.teeth
-        fp.gear.undercut = fp.undercut
-        fp.gear.shift = fp.shift
-        fp.gear.pressure_angle = fp.pressure_angle.Value * np.pi / 180.
-        fp.gear.beta = fp.beta.Value * np.pi / 180
-        fp.gear.clearance = fp.clearance
-        fp.gear.backlash = fp.backlash.Value * \
-            (-fp.reversed_backlash + 0.5) * 2.
-        fp.gear.head = fp.head
-        # checksbackwardcompatibility:
-        if "properties_from_tool" in fp.PropertiesList:
-            fp.gear.properties_from_tool = fp.properties_from_tool
-        fp.gear._update()
-        pts = fp.gear.points(num=fp.numpoints)
+        super(HybrideBaseGear, self).execute(fp)
+        fch.get_properties(fp, self.props)
+        fp.Shape = self.generator.generate_shape()
+        fch.set_properties(fp, self.props, True)
+
+    def __getstate__(self):
+        pass
+
+    def __setstate__(self, state):
+        pass
+    
+
+@dataclasses.dataclass
+class InvoluteGearProperties:
+    simple: bool = \
+        fch.fc_property_bool(False, 'precision', 'simple')
+    teeth: int = \
+        fch.fc_property_int(15, 'gear_parameter', 'number of teeth')
+    module_mm: float = \
+        fch.fc_property_length(1, 'gear_parameter',
+                               "normal module if properties_from_tool=True, else it's the transverse module.")
+    undercut: bool = \
+        fch.fc_property_bool(False, 'gear_parameter', 'undercut')
+    shift: float = \
+        fch.fc_property_float(0, 'gear_parameter', 'shift')
+    height_mm: float = \
+        fch.fc_property_length(5, 'gear_parameter', 'height')
+    pressure_angle_deg: float = \
+        fch.fc_property_angle(20, 'involute_parameter', 'pressure angle')
+    clearance: float = \
+        fch.fc_property_float(0.25, 'gear_parameter', 'clearance')
+    numpoints: int = \
+        fch.fc_property_int(6, 'precision', 'number of points for spline')
+    beta_deg: float = \
+        fch.fc_property_angle(0, 'gear_parameter', 'beta')
+    double_helix: bool = \
+        fch.fc_property_bool(False, 'gear_parameter', 'double helix')
+    backlash_mm: float = \
+        fch.fc_property_length(0, 'tolerance', 'backlash')
+    reversed_backlash: bool = \
+        fch.fc_property_bool(False, 'tolerance', 'backlash direction')
+    head: float = \
+        fch.fc_property_float(0, 'gear_parameter', 'head_value * modul_value = additional length of head')
+    properties_from_tool: bool = \
+        fch.fc_property_bool(False,
+                             'gear_parameter',
+                             'if beta is given and properties_from_tool is enabled, '
+                             'gear parameters are internally recomputed for the rotated gear',
+                             migrate=True)
+    # gear: object = fch.fc_property_object(
+    #     TODO, 'gear_parameter', 'test')
+    dw_mm: float = \
+        fch.fc_property_length(0, 'computed', 'pitch diameter', readonly=True)
+    transverse_pitch_mm: float = \
+        fch.fc_property_length(0, 'computed', 'transverse_pitch', readonly=True)
+    da_mm: float = \
+        fch.fc_property_length(0, 'computed', 'outside diameter', readonly=True, migrate=True)
+    df_mm: float = \
+        fch.fc_property_length(0, 'computed', 'root diameter', readonly=True, migrate=True)
+
+
+
+class InvoluteGearGenerator:
+    def __init__(self, properties: InvoluteGearProperties):
+        self._properties = properties
+        self._tooth = InvoluteTooth()
+
+    def generate_shape(self):
+        tooth = self._tooth
+        props = self._properties
+        tooth.double_helix = props.double_helix
+        tooth.m_n = props.module_mm
+        tooth.z = props.teeth
+        tooth.undercut = props.undercut
+        tooth.shift = props.shift
+        tooth.pressure_angle = props.pressure_angle_deg * np.pi / 180.
+        tooth.beta = props.beta_deg * np.pi / 180
+        tooth.clearance = props.clearance
+        tooth.backlash = props.backlash_mm * \
+            (-props.reversed_backlash + 0.5) * 2.
+        tooth.head = props.head
+        tooth.properties_from_tool = props.properties_from_tool
+        tooth._update()
+
+        pts = tooth.points(num=props.numpoints)
         rotated_pts = pts
-        rot = rotation(-fp.gear.phipart)
-        for i in range(fp.gear.z - 1):
+        rot = rotation(-tooth.phipart)
+        for i in range(tooth.z - 1):
             rotated_pts = list(map(rot, rotated_pts))
             pts.append(np.array([pts[-1][-1], rotated_pts[0][0]]))
             pts += rotated_pts
         pts.append(np.array([pts[-1][-1], pts[0][0]]))
-        if not fp.simple:
+        if not props.simple:
             wi = []
             for i in pts:
                 out = BSplineCurve()
                 out.interpolate(list(map(fcvec, i)))
                 wi.append(out.toShape())
             wi = Wire(wi)
-            if fp.height.Value == 0:
-                fp.Shape = wi
-            elif fp.beta.Value == 0:
+            if props.height_mm == 0:
+                shape = wi
+            elif props.beta_deg == 0:
                 sh = Face(wi)
-                fp.Shape = sh.extrude(App.Vector(0, 0, fp.height.Value))
+                shape = sh.extrude(App.Vector(0, 0, props.height_mm))
             else:
-                fp.Shape = helicalextrusion(
-                    wi, fp.height.Value, fp.height.Value * np.tan(fp.gear.beta) * 2 / fp.gear.d, fp.double_helix)
+                shape = helicalextrusion(
+                    wi, props.height_mm, props.height_mm * np.tan(tooth.beta) * 2 / tooth.d, props.double_helix)
         else:
-            rw = fp.gear.dw / 2
-            fp.Shape = Part.makeCylinder(rw, fp.height.Value)
+            rw = tooth.dw / 2
+            shape = Part.makeCylinder(rw, props.height_mm)
 
-        # computed properties
-        fp.dw = "{}mm".format(fp.gear.dw)
-        fp.transverse_pitch = "{}mm".format(fp.gear.pitch)
-        # checksbackwardcompatibility:
-        if not "da" in fp.PropertiesList:
-            self.add_limiting_diameter_properties(fp)
-        fp.da = "{}mm".format(fp.gear.da)
-        fp.df = "{}mm".format(fp.gear.df)
+        props.dw_mm = tooth.dw
+        props.transverse_pitch_mm = tooth.pitch
+        props.da_mm = tooth.da
+        props.df_mm = tooth.df
+        return shape
 
-    def __getstate__(self):
-        return None
 
-    def __setstate__(self, state):
-        return None
+class InvoluteGear(HybrideBaseGear):
+    generator_type = InvoluteGearGenerator
+    props_type = InvoluteGearProperties
 
 
 class InvoluteGearRack(BaseGear):
@@ -919,38 +928,20 @@ class TimingGear(BaseGear):
 
 @dataclasses.dataclass
 class LanternGearProperties:
-    teeth: int = fch.fc_property_int(15, 'gear_parameter', 'number of teeth')
-    module_mm: float = fch.fc_property_len(1, "gear_parameter", "module")
-    bolt_radius_mm: float = fch.fc_property_len(1, "gear_parameter", "the bolt radius of the rack/chain")
-    height_mm: float = fch.fc_property_len(5, "gear_parameter", "height")
-    head: int = fch.fc_property_float(0, "gear_parameter", "head * module = additional length of head")
-    num_profiles: int = fch.fc_property_int(10, "accuracy", "number of profiles used for loft")
+    teeth: int = \
+        fch.fc_property_int(15, 'gear_parameter', 'number of teeth')
+    module_mm: float = \
+        fch.fc_property_length(1, "gear_parameter", "module")
+    bolt_radius_mm: float = \
+        fch.fc_property_length(1, "gear_parameter", "the bolt radius of the rack/chain")
+    height_mm: float = \
+        fch.fc_property_length(5, "gear_parameter", "height")
+    head: int = \
+        fch.fc_property_float(0, "gear_parameter", "head * module = additional length of head")
+    num_profiles: int = \
+        fch.fc_property_int(10, "accuracy", "number of profiles used for loft")
 
-class HybrideBaseGear(BaseGear):
-    props_type: typing.ClassVar
-    generator_type: typing.ClassVar
 
-    def __init__(self, obj):
-        super(HybrideBaseGear, self).__init__(obj)
-        self.props = self.props_type()
-        self.generator = self.generator_type(self.props)
-
-        fch.add_properties(obj, self.props)
-        fch.set_properties(obj, self.props)
-
-        self.obj = obj
-        obj.Proxy = self
-
-    def execute(self, fp):
-        super(HybrideBaseGear, self).execute(fp)
-        fch.get_properties(fp, self.props)
-        fp.Shape = self.generator.generate_shape()
-
-    def __getstate__(self):
-        pass
-
-    def __setstate__(self, state):
-        pass
 
 class LanternGearGenerator:
 
